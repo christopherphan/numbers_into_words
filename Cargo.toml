@@ -3,6 +3,7 @@ name = "numbers_into_words"
 authors = ["Christopher Phan"]
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/christopherphan/numbers_into_words"
 description = "Command-line utility and library for writing a positive integer as English words"
 edition = "2021"
 

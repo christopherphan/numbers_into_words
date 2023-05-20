@@ -1,6 +1,9 @@
 [package]
-name = "number_words"
+name = "numbers_into_words"
+authors = ["Christopher Phan"]
 version = "0.1.0"
+license = "MIT OR Apache-2.0"
+description = "Command-line utility and library for writing a positive integer as English words"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

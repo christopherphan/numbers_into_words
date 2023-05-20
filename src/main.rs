@@ -1,11 +1,17 @@
-/* Lots of match statement examples
+/* src/main.rs
  *
- * Christopher Phan
- * 2023-W20
+ * This file is part of numbers_into_words
  *
+ * Copyright (C) 2023 Christopher Phan
+ * https://chrisphan.com/
+ *
+ * Licensed under MIT or APACHE 2.0
+ *
+ * See LICENSE-MIT.txt and LICENSE-APACHE-2.0.txt
+ * in repository root directory.
  * */
 
-use number_words::Config;
+use numbers_into_words::Config;
 use std::env;
 
 fn main() {

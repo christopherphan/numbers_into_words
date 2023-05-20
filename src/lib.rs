@@ -1,9 +1,21 @@
-/* Number words
+/* src/lib.rs
  *
- * Christopher Phan
- * 2023-W20
+ * This file is part of numbers_into_words
  *
+ * Copyright (C) 2023 Christopher Phan
+ * https://chrisphan.com/
+ *
+ * Licensed under MIT or APACHE 2.0
+ *
+ * See LICENSE-MIT.txt and LICENSE-APACHE-2.0.txt
+ * in repository root directory.
  * */
+
+const COPYRIGHT_INFO: &str = "\
+         Copyright \u{00a9} 2023 Christopher Phan\n\
+         https://chrisphan.com/\n\
+         Licensed under MIT or APACHE 2.0";
+
 pub use conversion_to_words::to_word;
 pub use process_input::Config;
 
@@ -80,7 +92,7 @@ pub mod conversion_to_words {
     /// # Examples
     ///
     /// ```
-    /// use number_words::to_word;
+    /// use numbers_into_words::to_word;
     ///
     /// // US population according to 2020 census
     /// // https://www2.census.gov/library/publications/decennial/2020/census-briefs/c2020br-01.pdf
@@ -250,6 +262,7 @@ pub mod conversion_to_words {
 
 pub mod process_input {
     use super::to_word;
+    use super::COPYRIGHT_INFO;
 
     enum InputComponent {
         ToConvert(u64),
@@ -262,7 +275,7 @@ pub mod process_input {
     /// # Examples
     ///
     /// ```
-    /// use number_words::Config;
+    /// use numbers_into_words::Config;
     /// use std::env;
     ///
     /// /* Essentially the entire main function for the command-line program */
@@ -272,7 +285,7 @@ pub mod process_input {
     /// ```
     ///
     /// ```
-    /// use number_words::Config;
+    /// use numbers_into_words::Config;
     ///
     /// let args: Vec<String> = vec!["program_name".to_string(), "42".to_string()];
     /// assert_eq!(
@@ -287,8 +300,9 @@ pub mod process_input {
     fn help_text(help_triggered: bool, prog_name: &String) -> String {
         if help_triggered {
             format!(
-                "Converts positive integers to words\n\
-                 -----------------------------------\n\
+                "numbers_into_words: Converts positive integers to words\n\
+                 {}\n\
+                 -------------------------------------------------------\n\
                  \n\
                  Usage:\n\
                  $ {} (<number> | help) [<number> | help] ... \n\
@@ -297,6 +311,7 @@ pub mod process_input {
                  \n\
                  {}\n\
                  Note: maximum value supported is {} ({})",
+                COPYRIGHT_INFO,
                 prog_name,
                 example_session(
                     &["234", "92,582,349", "543_953_459_343", "8"],

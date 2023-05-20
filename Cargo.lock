@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "number_words"
+name = "numbers_into_words"
 version = "0.1.0"

@@ -858,25 +858,61 @@ pub mod process_input {
 
     fn help_text(prog_name: &String) -> String {
         format!(
-            "numbers_into_words: Converts positive integers to words\n\
-                 {}\n\
-                 -------------------------------------------------------\n\
-                 \n\
-                 Usage:\n\
-                 $ {} (<number> | help) [<number> | help] ... \n\
-                 \n\
-                 Example:\n\
-                 \n\
-                 {}\n\
-                 Note: maximum value supported is {} ({})",
+            "\
+                numbers_into_words: Converts positive integers to words\n\
+                {}\n\
+                -------------------------------------------------------\n\
+                \n\
+                Usage: {} [OPTIONS] [NUMBERS]\n\
+                \n\
+                Options:\n\
+                \u{0020} --help                 Display this help message\n\
+                \u{0020} --and=<AND-OPTION>     Specify when the word \"and\"\n\
+                \u{0020}                        should be used in phrases like\n\
+                \u{0020}                        \"five-hundred and seventy-two\"\n\
+                \u{0020}   --and=none           Don't use the word \"and\"\n\
+                \u{0020}                        (e.g. \"five-hundred seventy-two\")\n\
+                \n\
+                \u{0020}   --and=last           Only use the word \"and\" in the\n\
+                \u{0020}                        hundreds-tens-units group\n\
+                \u{0020}                        (e.g. \"three-hundred five thousand,\n\
+                \u{0020}                               five-hundred and seventy-two\",\n\
+                \u{0020}                        but \"three-hundred five million,\n\
+                \u{0020}                             five-hundred seventy-two thousand\")\n\
+                \n\
+                \u{0020}   --and=below1k        Only use the word \"and\" for numbers below 1000\n\
+                \u{0020}                        (e.g. \"three-hundred five thousand,\n\
+                \u{0020}                               five-hundred seventy-two\",\n\
+                \u{0020}                        but \"three-hundred and five\")\n\
+                \n\
+                \u{0020}   --and=all            Always use \"and\" (default behavior)\n\
+                \u{0020}                        (e.g. \"five-hundred and twenty-four million,\n\
+                \u{0020}                               three-hundred and seventy-eight\")
+                \n\
+                Examples:\n\
+                \n\
+                {}\n\
+                \n\
+                {}\n\
+                \n\
+                {}\n\
+                Note: maximum value supported is {}\
+            ",
             COPYRIGHT_INFO,
             prog_name,
             example_session(
                 &["234", "92,582,349", "543_953_459_343", "8"],
                 prog_name.as_str()
             ),
+            example_session(
+                &["234", "92,582,349", "543_953_459_343", "8", "--and=last"],
+                prog_name.as_str()
+            ),
+            example_session(
+                &["234", "92,582,349", "543_953_459_343", "8", "--and=none"],
+                prog_name.as_str()
+            ),
             u64::MAX,
-            to_word(u64::MAX, AndBehavior::All)
         )
     }
 

@@ -13,3 +13,6 @@ $ numbers_into_words 234 92,582,349 543_953_459_343 8
 ```
 
 License: MIT OR Apache-2.0
+
+- [`crates.io`](https://crates.io/crates/numbers_into_words)
+- [Documentation (`docs.rs`)](https://docs.rs/crate/numbers_into_words/latest)

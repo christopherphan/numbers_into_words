@@ -820,11 +820,16 @@ pub mod process_input {
         ToConvert(u64),
         Error(String),
         Help,
+        AndHelp,
+        MinimalOutput,
         AndOption(AndBehavior),
     }
 
     enum OutputComponent {
-        ToConvert(u64, AndBehavior),
+        ToConvert {
+            value: u64,
+            and_behavior: AndBehavior,
+        },
         Error(String),
     }
 
@@ -848,28 +853,20 @@ pub mod process_input {
     /// let args: Vec<String> = vec!["program_name".to_string(), "42".to_string()];
     /// assert_eq!(
     ///     Config::parse(args).process(),
-    ///     String::from("42: forty-two\n"));
+    ///     String::from("42: forty-two"));
     /// ```
     pub struct Config {
         output_components: Result<Vec<OutputComponent>, String>,
         help: bool,
+        and_help: bool,
         prog_name: String,
+        minimal_output: bool,
     }
 
-    fn help_text(prog_name: &String) -> String {
-        format!(
-            "\
-                numbers_into_words: Converts positive integers to words\n\
-                {}\n\
-                -------------------------------------------------------\n\
-                \n\
-                Usage: {} [OPTIONS] [NUMBERS]\n\
-                \n\
-                Options:\n\
-                \u{0020} --help                 Display this help message\n\
-                \u{0020} --and=<AND-OPTION>     Specify when the word \"and\"\n\
-                \u{0020}                        should be used in phrases like\n\
-                \u{0020}                        \"five-hundred and seventy-two\"\n\
+    fn and_help() -> String {
+        "\
+                \"and\" options:\n\
+                -------------------------------------------------------------------\n\
                 \u{0020}   --and=none           Don't use the word \"and\"\n\
                 \u{0020}                        (e.g. \"five-hundred seventy-two\")\n\
                 \n\
@@ -887,29 +884,48 @@ pub mod process_input {
                 \n\
                 \u{0020}   --and=all            Always use \"and\" (default behavior)\n\
                 \u{0020}                        (e.g. \"five-hundred and twenty-four million,\n\
-                \u{0020}                               three-hundred and seventy-eight\")
+                \u{0020}                               three-hundred and seventy-eight\")\n\
+                "
+        .to_string()
+    }
+
+    fn help_text(prog_name: &String) -> String {
+        format!(
+            "\
+                numbers_into_words: Converts positive integers to words\n\
+                {}\n\
+                -------------------------------------------------------\n\
+                \n\
+                Usage: {} [OPTIONS] [NUMBERS]\n\
+                \n\
+                Options:\n\
+                \u{0020} --help                 Display this help message\n\
+                \n\
+                \u{0020} --and=(none | last | below1k | all )\n\
+                \n\
+                \u{0020}                        Specify when the word \"and\"\n\
+                \u{0020}                        should be used in phrases like\n\
+                \u{0020}                        \"five-hundred and seventy-two\"\n\
+                \n\
+                \u{0020} --and-help             Describe the options for --and=\n\
+                \n\
+                \u{0020} --minimal              Output only the words for each\n\
+                \u{0020}                        number (rather than prefacing\n\
+                \u{0020}                        with the numerals, e.g. \"five\"\n\
+                \u{0020}                        instead of \"5: five\")\n\
                 \n\
                 Examples:\n\
                 \n\
                 {}\n\
-                \n\
                 {}\n\
                 \n\
-                {}\n\
                 Note: maximum value supported is {}\
             ",
             COPYRIGHT_INFO,
             prog_name,
+            example_session(&["234", "409_343", "305814"], prog_name.as_str()),
             example_session(
-                &["234", "92,582,349", "543_953_459_343", "8"],
-                prog_name.as_str()
-            ),
-            example_session(
-                &["234", "92,582,349", "543_953_459_343", "8", "--and=last"],
-                prog_name.as_str()
-            ),
-            example_session(
-                &["234", "92,582,349", "543_953_459_343", "8", "--and=none"],
+                &["--and=last", "--minimal", "234", "409_343", "305814"],
                 prog_name.as_str()
             ),
             u64::MAX,
@@ -934,15 +950,19 @@ pub mod process_input {
             if args.len() < 2 {
                 return Self {
                     output_components: Err(format!(
-                        "No arguments. Try this:\n$ {} help",
+                        "No arguments. For help, run:\n$ {} --help",
                         prog_name
                     )),
                     help: false,
+                    and_help: false,
+                    minimal_output: false,
                     prog_name,
                 };
             }
 
             let mut help: bool = false;
+            let mut and_help: bool = false;
+            let mut minimal_output: bool = false;
             let mut and_behavior: AndBehavior = AndBehavior::All;
             let input_cmpts: Vec<InputComponent> = args[1..]
                 .iter()
@@ -956,15 +976,22 @@ pub mod process_input {
                     InputComponent::AndOption(k) => {
                         and_behavior = k;
                     }
+                    InputComponent::MinimalOutput => {
+                        minimal_output = true;
+                    }
+                    InputComponent::AndHelp => {
+                        and_help = true;
+                    }
                     _ => {}
                 }
             }
             let output_components: Result<Vec<OutputComponent>, String> = Ok(input_cmpts
                 .iter()
                 .map(|x| match x {
-                    InputComponent::ToConvert(k) => {
-                        Some(OutputComponent::ToConvert(*k, and_behavior))
-                    }
+                    InputComponent::ToConvert(k) => Some(OutputComponent::ToConvert {
+                        value: *k,
+                        and_behavior,
+                    }),
                     InputComponent::Error(k) => Some(OutputComponent::Error(k.clone())),
                     _ => None,
                 })
@@ -975,7 +1002,9 @@ pub mod process_input {
             Self {
                 output_components,
                 help,
+                and_help,
                 prog_name,
+                minimal_output,
             }
         }
 
@@ -993,8 +1022,19 @@ pub mod process_input {
 
                     for c in cmpts {
                         match c {
-                            OutputComponent::ToConvert(k, and_behavior) => {
-                                valid_vec.push(format!("{}: {}", k, to_word(*k, *and_behavior)));
+                            OutputComponent::ToConvert {
+                                value,
+                                and_behavior,
+                            } => {
+                                valid_vec.push(format!(
+                                    "{}{}",
+                                    if self.minimal_output {
+                                        "".to_string()
+                                    } else {
+                                        format!("{}: ", value)
+                                    },
+                                    to_word(*value, *and_behavior)
+                                ));
                                 valid = true;
                             }
                             OutputComponent::Error(e) => {
@@ -1007,9 +1047,11 @@ pub mod process_input {
                     if !valid_vec.is_empty() && self.help {
                         valid_conversions.push_str("\n---\n\n");
                     }
-                    for k in valid_vec {
+                    for (idx, k) in valid_vec.iter().enumerate() {
                         valid_conversions.push_str(k.as_str());
-                        valid_conversions.push('\n');
+                        if idx != valid_vec.len() - 1 {
+                            valid_conversions.push('\n');
+                        }
                     }
                     if valid && errors {
                         valid_conversions.push('\n');
@@ -1022,14 +1064,24 @@ pub mod process_input {
                     };
 
                     format!(
-                        "{}{}{}",
+                        "{}{}{}{}{}",
                         if self.help {
                             help_text(&self.prog_name)
                         } else {
                             "".to_string()
                         },
+                        if self.and_help {
+                            and_help()
+                        } else {
+                            "".to_string()
+                        },
                         valid_conversions,
-                        errors
+                        errors,
+                        if !error_vec.is_empty() && !valid && !self.help {
+                            format!("\nFor help, run: {} --help", self.prog_name)
+                        } else {
+                            "".to_string()
+                        }
                     )
                 }
             }
@@ -1042,6 +1094,10 @@ pub mod process_input {
             if cleaned.len() > 2 && &cleaned[..2] == "--" {
                 if &cleaned[2..] == "help" {
                     Self::Help
+                } else if &cleaned[2..] == "and-help" {
+                    Self::AndHelp
+                } else if &cleaned[2..] == "minimal" {
+                    Self::MinimalOutput
                 } else if &cleaned[2..6] == "and=" {
                     match &cleaned[6..] {
                         "none" => Self::AndOption(AndBehavior::None),

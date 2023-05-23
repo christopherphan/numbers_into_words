@@ -25,7 +25,7 @@ pub mod conversion_to_words {
     const AND_STR: &str = " and ";
 
     /// Signals when the word "and" should be used in an output
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum AndBehavior {
         /// Indicates that the word "and" is not to be used.
         ///
@@ -286,6 +286,29 @@ pub mod conversion_to_words {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn test_insert_and() {
+            let mut ab = AndBehavior::None;
+            assert_eq!(ab.insert_and(4, 5234234924233), " ");
+            assert_eq!(ab.insert_and(0, 1263953243921), " ");
+            assert_eq!(ab.insert_and(0, 432), " ");
+
+            ab = AndBehavior::LastGroup;
+            assert_eq!(ab.insert_and(4, 5234234924233), " ");
+            assert_eq!(ab.insert_and(0, 1263953243921), " and ");
+            assert_eq!(ab.insert_and(0, 432), " and ");
+
+            ab = AndBehavior::OnlyUnderThousand;
+            assert_eq!(ab.insert_and(4, 5234234924233), " ");
+            assert_eq!(ab.insert_and(0, 1263953243921), " ");
+            assert_eq!(ab.insert_and(0, 432), " and ");
+
+            ab = AndBehavior::All;
+            assert_eq!(ab.insert_and(4, 5234234924233), " and ");
+            assert_eq!(ab.insert_and(0, 1263953243921), " and ");
+            assert_eq!(ab.insert_and(0, 432), " and ");
+        }
 
         #[test]
         fn test_single_digit() {
@@ -815,16 +838,22 @@ pub mod process_input {
     use super::to_word;
     use super::COPYRIGHT_INFO;
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     enum InputComponent {
         ToConvert(u64),
         Error(String),
         Help,
+        AndHelp,
+        MinimalOutput,
         AndOption(AndBehavior),
     }
 
+    #[derive(Clone, Debug, PartialEq, Eq)]
     enum OutputComponent {
-        ToConvert(u64, AndBehavior),
+        ToConvert {
+            value: u64,
+            and_behavior: AndBehavior,
+        },
         Error(String),
     }
 
@@ -848,28 +877,20 @@ pub mod process_input {
     /// let args: Vec<String> = vec!["program_name".to_string(), "42".to_string()];
     /// assert_eq!(
     ///     Config::parse(args).process(),
-    ///     String::from("42: forty-two\n"));
+    ///     String::from("42: forty-two"));
     /// ```
     pub struct Config {
         output_components: Result<Vec<OutputComponent>, String>,
         help: bool,
+        and_help: bool,
         prog_name: String,
+        minimal_output: bool,
     }
 
-    fn help_text(prog_name: &String) -> String {
-        format!(
-            "\
-                numbers_into_words: Converts positive integers to words\n\
-                {}\n\
-                -------------------------------------------------------\n\
-                \n\
-                Usage: {} [OPTIONS] [NUMBERS]\n\
-                \n\
-                Options:\n\
-                \u{0020} --help                 Display this help message\n\
-                \u{0020} --and=<AND-OPTION>     Specify when the word \"and\"\n\
-                \u{0020}                        should be used in phrases like\n\
-                \u{0020}                        \"five-hundred and seventy-two\"\n\
+    fn and_help() -> String {
+        "\
+                \"and\" options:\n\
+                -------------------------------------------------------------------\n\
                 \u{0020}   --and=none           Don't use the word \"and\"\n\
                 \u{0020}                        (e.g. \"five-hundred seventy-two\")\n\
                 \n\
@@ -887,29 +908,48 @@ pub mod process_input {
                 \n\
                 \u{0020}   --and=all            Always use \"and\" (default behavior)\n\
                 \u{0020}                        (e.g. \"five-hundred and twenty-four million,\n\
-                \u{0020}                               three-hundred and seventy-eight\")
+                \u{0020}                               three-hundred and seventy-eight\")\n\
+                "
+        .to_string()
+    }
+
+    fn help_text(prog_name: &String) -> String {
+        format!(
+            "\
+                numbers_into_words: Converts positive integers to words\n\
+                {}\n\
+                -------------------------------------------------------\n\
+                \n\
+                Usage: {} [OPTIONS] [NUMBERS]\n\
+                \n\
+                Options:\n\
+                \u{0020} --help                 Display this help message\n\
+                \n\
+                \u{0020} --and=(none | last | below1k | all )\n\
+                \n\
+                \u{0020}                        Specify when the word \"and\"\n\
+                \u{0020}                        should be used in phrases like\n\
+                \u{0020}                        \"five-hundred and seventy-two\"\n\
+                \n\
+                \u{0020} --and-help             Describe the options for --and=\n\
+                \n\
+                \u{0020} --minimal              Output only the words for each\n\
+                \u{0020}                        number (rather than prefacing\n\
+                \u{0020}                        with the numerals, e.g. \"five\"\n\
+                \u{0020}                        instead of \"5: five\")\n\
                 \n\
                 Examples:\n\
                 \n\
                 {}\n\
-                \n\
                 {}\n\
                 \n\
-                {}\n\
                 Note: maximum value supported is {}\
             ",
             COPYRIGHT_INFO,
             prog_name,
+            example_session(&["234", "409_343", "305814"], prog_name.as_str()),
             example_session(
-                &["234", "92,582,349", "543_953_459_343", "8"],
-                prog_name.as_str()
-            ),
-            example_session(
-                &["234", "92,582,349", "543_953_459_343", "8", "--and=last"],
-                prog_name.as_str()
-            ),
-            example_session(
-                &["234", "92,582,349", "543_953_459_343", "8", "--and=none"],
+                &["--and=last", "--minimal", "234", "409_343", "305814"],
                 prog_name.as_str()
             ),
             u64::MAX,
@@ -934,15 +974,19 @@ pub mod process_input {
             if args.len() < 2 {
                 return Self {
                     output_components: Err(format!(
-                        "No arguments. Try this:\n$ {} help",
+                        "No arguments. For help, run:\n$ {} --help",
                         prog_name
                     )),
                     help: false,
+                    and_help: false,
+                    minimal_output: false,
                     prog_name,
                 };
             }
 
             let mut help: bool = false;
+            let mut and_help: bool = false;
+            let mut minimal_output: bool = false;
             let mut and_behavior: AndBehavior = AndBehavior::All;
             let input_cmpts: Vec<InputComponent> = args[1..]
                 .iter()
@@ -956,15 +1000,22 @@ pub mod process_input {
                     InputComponent::AndOption(k) => {
                         and_behavior = k;
                     }
+                    InputComponent::MinimalOutput => {
+                        minimal_output = true;
+                    }
+                    InputComponent::AndHelp => {
+                        and_help = true;
+                    }
                     _ => {}
                 }
             }
             let output_components: Result<Vec<OutputComponent>, String> = Ok(input_cmpts
                 .iter()
                 .map(|x| match x {
-                    InputComponent::ToConvert(k) => {
-                        Some(OutputComponent::ToConvert(*k, and_behavior))
-                    }
+                    InputComponent::ToConvert(k) => Some(OutputComponent::ToConvert {
+                        value: *k,
+                        and_behavior,
+                    }),
                     InputComponent::Error(k) => Some(OutputComponent::Error(k.clone())),
                     _ => None,
                 })
@@ -975,7 +1026,9 @@ pub mod process_input {
             Self {
                 output_components,
                 help,
+                and_help,
                 prog_name,
+                minimal_output,
             }
         }
 
@@ -993,8 +1046,19 @@ pub mod process_input {
 
                     for c in cmpts {
                         match c {
-                            OutputComponent::ToConvert(k, and_behavior) => {
-                                valid_vec.push(format!("{}: {}", k, to_word(*k, *and_behavior)));
+                            OutputComponent::ToConvert {
+                                value,
+                                and_behavior,
+                            } => {
+                                valid_vec.push(format!(
+                                    "{}{}",
+                                    if self.minimal_output {
+                                        "".to_string()
+                                    } else {
+                                        format!("{}: ", value)
+                                    },
+                                    to_word(*value, *and_behavior)
+                                ));
                                 valid = true;
                             }
                             OutputComponent::Error(e) => {
@@ -1007,9 +1071,11 @@ pub mod process_input {
                     if !valid_vec.is_empty() && self.help {
                         valid_conversions.push_str("\n---\n\n");
                     }
-                    for k in valid_vec {
+                    for (idx, k) in valid_vec.iter().enumerate() {
                         valid_conversions.push_str(k.as_str());
-                        valid_conversions.push('\n');
+                        if idx != valid_vec.len() - 1 {
+                            valid_conversions.push('\n');
+                        }
                     }
                     if valid && errors {
                         valid_conversions.push('\n');
@@ -1022,14 +1088,24 @@ pub mod process_input {
                     };
 
                     format!(
-                        "{}{}{}",
+                        "{}{}{}{}{}",
                         if self.help {
                             help_text(&self.prog_name)
                         } else {
                             "".to_string()
                         },
+                        if self.and_help {
+                            and_help()
+                        } else {
+                            "".to_string()
+                        },
                         valid_conversions,
-                        errors
+                        errors,
+                        if !error_vec.is_empty() && !valid && !self.help {
+                            format!("\nFor help, run: {} --help", self.prog_name)
+                        } else {
+                            "".to_string()
+                        }
                     )
                 }
             }
@@ -1042,6 +1118,10 @@ pub mod process_input {
             if cleaned.len() > 2 && &cleaned[..2] == "--" {
                 if &cleaned[2..] == "help" {
                     Self::Help
+                } else if &cleaned[2..] == "and-help" {
+                    Self::AndHelp
+                } else if &cleaned[2..] == "minimal" {
+                    Self::MinimalOutput
                 } else if &cleaned[2..6] == "and=" {
                     match &cleaned[6..] {
                         "none" => Self::AndOption(AndBehavior::None),
@@ -1067,6 +1147,281 @@ pub mod process_input {
                     }
                 }
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_example_session() {
+            assert_eq!(
+                example_session(&["--help"], "PROGRAM_NAME"),
+                "$ PROGRAM_NAME --help\n".to_owned() + &help_text(&"PROGRAM_NAME".to_string())
+            );
+            assert_eq!(
+                example_session(&["--and-help"], "PROGRAM_NAME"),
+                "$ PROGRAM_NAME --and-help\n".to_owned() + &and_help()
+            );
+            assert_eq!(
+                example_session(&["234", "15_234", "4x3x5x2xyz"], "blah"),
+                "$ blah 234 15_234 4x3x5x2xyz\n234: two-hundred and thirty-four\n".to_owned()
+                    + "15234: fifteen thousand, two-hundred and thirty-four\n"
+                    + "4352: four thousand, three-hundred and fifty-two"
+            );
+        }
+
+        #[test]
+        fn test_config_parse() {
+            let mut cfg = Config::parse(vec!["blahblah".to_string()]);
+            assert!(cfg.output_components.is_err());
+            assert!(!cfg.help);
+            assert!(!cfg.and_help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "--help"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            assert_eq!(cfg.output_components.unwrap().len(), 0);
+            assert!(cfg.help);
+            assert!(!cfg.and_help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "--and-help", "234"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            assert_eq!(cfg.output_components.unwrap().len(), 1);
+            assert!(cfg.and_help);
+            assert!(!cfg.help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "--minimal", "234", "2265245"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            assert_eq!(cfg.output_components.unwrap().len(), 2);
+            assert!(!cfg.and_help);
+            assert!(!cfg.help);
+            assert!(cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "--and=none", "234", "2265245"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            let oc = cfg.output_components.unwrap();
+            assert_eq!(oc.len(), 2);
+            assert_eq!(
+                oc[0],
+                OutputComponent::ToConvert {
+                    value: 234,
+                    and_behavior: AndBehavior::None
+                }
+            );
+            assert_eq!(
+                oc[1],
+                OutputComponent::ToConvert {
+                    value: 2265245,
+                    and_behavior: AndBehavior::None
+                }
+            );
+            assert!(!cfg.and_help);
+            assert!(!cfg.help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "--and=last", "234", "2265245"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            let oc = cfg.output_components.unwrap();
+            assert_eq!(oc.len(), 2);
+            assert_eq!(
+                oc[0],
+                OutputComponent::ToConvert {
+                    value: 234,
+                    and_behavior: AndBehavior::LastGroup
+                }
+            );
+            assert_eq!(
+                oc[1],
+                OutputComponent::ToConvert {
+                    value: 2265245,
+                    and_behavior: AndBehavior::LastGroup
+                }
+            );
+            assert!(!cfg.and_help);
+            assert!(!cfg.help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "--and=below1k", "234", "2265245"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            let oc = cfg.output_components.unwrap();
+            assert_eq!(oc.len(), 2);
+            assert_eq!(
+                oc[0],
+                OutputComponent::ToConvert {
+                    value: 234,
+                    and_behavior: AndBehavior::OnlyUnderThousand
+                }
+            );
+            assert_eq!(
+                oc[1],
+                OutputComponent::ToConvert {
+                    value: 2265245,
+                    and_behavior: AndBehavior::OnlyUnderThousand
+                }
+            );
+            assert!(!cfg.and_help);
+            assert!(!cfg.help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "--and=all", "234", "2265245"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            let oc = cfg.output_components.unwrap();
+            assert_eq!(oc.len(), 2);
+            assert_eq!(
+                oc[0],
+                OutputComponent::ToConvert {
+                    value: 234,
+                    and_behavior: AndBehavior::All
+                }
+            );
+            assert_eq!(
+                oc[1],
+                OutputComponent::ToConvert {
+                    value: 2265245,
+                    and_behavior: AndBehavior::All
+                }
+            );
+            assert!(!cfg.and_help);
+            assert!(!cfg.help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "234", "2265245"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            let oc = cfg.output_components.unwrap();
+            assert_eq!(oc.len(), 2);
+            assert_eq!(
+                oc[0],
+                OutputComponent::ToConvert {
+                    value: 234,
+                    and_behavior: AndBehavior::All
+                }
+            );
+            assert_eq!(
+                oc[1],
+                OutputComponent::ToConvert {
+                    value: 2265245,
+                    and_behavior: AndBehavior::All
+                }
+            );
+            assert!(!cfg.and_help);
+            assert!(!cfg.help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+        }
+
+        #[test]
+        fn test_parse_single_output() {
+            assert_eq!(
+                InputComponent::parse_single_input("--help"),
+                InputComponent::Help
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("--and-help"),
+                InputComponent::AndHelp
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("--minimal"),
+                InputComponent::MinimalOutput
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("--and=none"),
+                InputComponent::AndOption(AndBehavior::None)
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("--and=last"),
+                InputComponent::AndOption(AndBehavior::LastGroup)
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("--and=below1k"),
+                InputComponent::AndOption(AndBehavior::OnlyUnderThousand)
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("--and=all"),
+                InputComponent::AndOption(AndBehavior::All)
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("--asfskajlas"),
+                InputComponent::Error("Invalid option --asfskajlas".to_string())
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("asfskajlas"),
+                InputComponent::Error("Invalid input: asfskajlas".to_string())
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("1"),
+                InputComponent::ToConvert(1)
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("523_972"),
+                InputComponent::ToConvert(523_972)
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("1_000_000_000_000_000_000_000"),
+                InputComponent::Error("Too big: 1_000_000_000_000_000_000_000".to_string())
+            );
         }
     }
 }

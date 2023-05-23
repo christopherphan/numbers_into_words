@@ -25,7 +25,7 @@ pub mod conversion_to_words {
     const AND_STR: &str = " and ";
 
     /// Signals when the word "and" should be used in an output
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum AndBehavior {
         /// Indicates that the word "and" is not to be used.
         ///
@@ -286,6 +286,29 @@ pub mod conversion_to_words {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn test_insert_and() {
+            let mut ab = AndBehavior::None;
+            assert_eq!(ab.insert_and(4, 5234234924233), " ");
+            assert_eq!(ab.insert_and(0, 1263953243921), " ");
+            assert_eq!(ab.insert_and(0, 432), " ");
+
+            ab = AndBehavior::LastGroup;
+            assert_eq!(ab.insert_and(4, 5234234924233), " ");
+            assert_eq!(ab.insert_and(0, 1263953243921), " and ");
+            assert_eq!(ab.insert_and(0, 432), " and ");
+
+            ab = AndBehavior::OnlyUnderThousand;
+            assert_eq!(ab.insert_and(4, 5234234924233), " ");
+            assert_eq!(ab.insert_and(0, 1263953243921), " ");
+            assert_eq!(ab.insert_and(0, 432), " and ");
+
+            ab = AndBehavior::All;
+            assert_eq!(ab.insert_and(4, 5234234924233), " and ");
+            assert_eq!(ab.insert_and(0, 1263953243921), " and ");
+            assert_eq!(ab.insert_and(0, 432), " and ");
+        }
 
         #[test]
         fn test_single_digit() {
@@ -815,7 +838,7 @@ pub mod process_input {
     use super::to_word;
     use super::COPYRIGHT_INFO;
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     enum InputComponent {
         ToConvert(u64),
         Error(String),
@@ -825,6 +848,7 @@ pub mod process_input {
         AndOption(AndBehavior),
     }
 
+    #[derive(Clone, Debug, PartialEq, Eq)]
     enum OutputComponent {
         ToConvert {
             value: u64,
@@ -1123,6 +1147,281 @@ pub mod process_input {
                     }
                 }
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_example_session() {
+            assert_eq!(
+                example_session(&["--help"], "PROGRAM_NAME"),
+                "$ PROGRAM_NAME --help\n".to_owned() + &help_text(&"PROGRAM_NAME".to_string())
+            );
+            assert_eq!(
+                example_session(&["--and-help"], "PROGRAM_NAME"),
+                "$ PROGRAM_NAME --and-help\n".to_owned() + &and_help()
+            );
+            assert_eq!(
+                example_session(&["234", "15_234", "4x3x5x2xyz"], "blah"),
+                "$ blah 234 15_234 4x3x5x2xyz\n234: two-hundred and thirty-four\n".to_owned()
+                    + "15234: fifteen thousand, two-hundred and thirty-four\n"
+                    + "4352: four thousand, three-hundred and fifty-two"
+            );
+        }
+
+        #[test]
+        fn test_config_parse() {
+            let mut cfg = Config::parse(vec!["blahblah".to_string()]);
+            assert!(cfg.output_components.is_err());
+            assert!(!cfg.help);
+            assert!(!cfg.and_help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "--help"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            assert_eq!(cfg.output_components.unwrap().len(), 0);
+            assert!(cfg.help);
+            assert!(!cfg.and_help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "--and-help", "234"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            assert_eq!(cfg.output_components.unwrap().len(), 1);
+            assert!(cfg.and_help);
+            assert!(!cfg.help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "--minimal", "234", "2265245"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            assert_eq!(cfg.output_components.unwrap().len(), 2);
+            assert!(!cfg.and_help);
+            assert!(!cfg.help);
+            assert!(cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "--and=none", "234", "2265245"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            let oc = cfg.output_components.unwrap();
+            assert_eq!(oc.len(), 2);
+            assert_eq!(
+                oc[0],
+                OutputComponent::ToConvert {
+                    value: 234,
+                    and_behavior: AndBehavior::None
+                }
+            );
+            assert_eq!(
+                oc[1],
+                OutputComponent::ToConvert {
+                    value: 2265245,
+                    and_behavior: AndBehavior::None
+                }
+            );
+            assert!(!cfg.and_help);
+            assert!(!cfg.help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "--and=last", "234", "2265245"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            let oc = cfg.output_components.unwrap();
+            assert_eq!(oc.len(), 2);
+            assert_eq!(
+                oc[0],
+                OutputComponent::ToConvert {
+                    value: 234,
+                    and_behavior: AndBehavior::LastGroup
+                }
+            );
+            assert_eq!(
+                oc[1],
+                OutputComponent::ToConvert {
+                    value: 2265245,
+                    and_behavior: AndBehavior::LastGroup
+                }
+            );
+            assert!(!cfg.and_help);
+            assert!(!cfg.help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "--and=below1k", "234", "2265245"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            let oc = cfg.output_components.unwrap();
+            assert_eq!(oc.len(), 2);
+            assert_eq!(
+                oc[0],
+                OutputComponent::ToConvert {
+                    value: 234,
+                    and_behavior: AndBehavior::OnlyUnderThousand
+                }
+            );
+            assert_eq!(
+                oc[1],
+                OutputComponent::ToConvert {
+                    value: 2265245,
+                    and_behavior: AndBehavior::OnlyUnderThousand
+                }
+            );
+            assert!(!cfg.and_help);
+            assert!(!cfg.help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "--and=all", "234", "2265245"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            let oc = cfg.output_components.unwrap();
+            assert_eq!(oc.len(), 2);
+            assert_eq!(
+                oc[0],
+                OutputComponent::ToConvert {
+                    value: 234,
+                    and_behavior: AndBehavior::All
+                }
+            );
+            assert_eq!(
+                oc[1],
+                OutputComponent::ToConvert {
+                    value: 2265245,
+                    and_behavior: AndBehavior::All
+                }
+            );
+            assert!(!cfg.and_help);
+            assert!(!cfg.help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+
+            cfg = Config::parse(
+                vec!["blahblah", "234", "2265245"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+            assert!(cfg.output_components.is_ok());
+            let oc = cfg.output_components.unwrap();
+            assert_eq!(oc.len(), 2);
+            assert_eq!(
+                oc[0],
+                OutputComponent::ToConvert {
+                    value: 234,
+                    and_behavior: AndBehavior::All
+                }
+            );
+            assert_eq!(
+                oc[1],
+                OutputComponent::ToConvert {
+                    value: 2265245,
+                    and_behavior: AndBehavior::All
+                }
+            );
+            assert!(!cfg.and_help);
+            assert!(!cfg.help);
+            assert!(!cfg.minimal_output);
+            assert_eq!(cfg.prog_name, "blahblah".to_string());
+        }
+
+        #[test]
+        fn test_parse_single_output() {
+            assert_eq!(
+                InputComponent::parse_single_input("--help"),
+                InputComponent::Help
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("--and-help"),
+                InputComponent::AndHelp
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("--minimal"),
+                InputComponent::MinimalOutput
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("--and=none"),
+                InputComponent::AndOption(AndBehavior::None)
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("--and=last"),
+                InputComponent::AndOption(AndBehavior::LastGroup)
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("--and=below1k"),
+                InputComponent::AndOption(AndBehavior::OnlyUnderThousand)
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("--and=all"),
+                InputComponent::AndOption(AndBehavior::All)
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("--asfskajlas"),
+                InputComponent::Error("Invalid option --asfskajlas".to_string())
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("asfskajlas"),
+                InputComponent::Error("Invalid input: asfskajlas".to_string())
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("1"),
+                InputComponent::ToConvert(1)
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("523_972"),
+                InputComponent::ToConvert(523_972)
+            );
+
+            assert_eq!(
+                InputComponent::parse_single_input("1_000_000_000_000_000_000_000"),
+                InputComponent::Error("Too big: 1_000_000_000_000_000_000_000".to_string())
+            );
         }
     }
 }
